@@ -1,109 +1,181 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mlkit/mlkit.dart';
 
 void main() => runApp(new MyApp());
 
-class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => new _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  File _file;
+  List<VisionText> _currentLabels = <VisionText>[];
+
+  FirebaseVisionTextDetector detector = FirebaseVisionTextDetector.instance;
+
+  @override
+  initState() {
+    super.initState();
+  }
+
   @override
   Widget build(BuildContext context) {
     return new MaterialApp(
-      title: 'Flutter Demo',
-      theme: new ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or press Run > Flutter Hot Reload in IntelliJ). Notice that the
-        // counter didn't reset back to zero; the application is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: new MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  _MyHomePageState createState() => new _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return new Scaffold(
-      appBar: new AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: new Text(widget.title),
-      ),
-      body: new Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: new Column(
-          // Column is also layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug paint" (press "p" in the console where you ran
-          // "flutter run", or select "Toggle Debug Paint" from the Flutter tool
-          // window in IntelliJ) to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            new Text(
-              'You have pushed the button this many times:',
-            ),
-            new Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.display1,
-            ),
-          ],
+      home: new Scaffold(
+        appBar: new AppBar(
+          title: new Text('Plugin example app'),
+        ),
+        body: _buildBody(),
+        floatingActionButton: new FloatingActionButton(
+          onPressed: () async {
+            try {
+              //var file = await ImagePicker.pickImage(source: ImageSource.camera);
+              var file =
+                  await ImagePicker.pickImage(source: ImageSource.gallery);
+              setState(() {
+                _file = file;
+              });
+              try {
+                var currentLabels = await detector.detectFromPath(_file?.path);
+                setState(() {
+                  _currentLabels = currentLabels;
+                });
+              } catch (e) {
+                print(e.toString());
+              }
+            } catch (e) {
+              print(e.toString());
+            }
+          },
+          child: new Icon(Icons.camera),
         ),
       ),
-      floatingActionButton: new FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: new Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  Widget _buildImage() {
+    return SizedBox(
+      height: 500.0,
+      child: new Center(
+        child: _file == null
+            ? Text('No Image')
+            : new FutureBuilder<Size>(
+                future: _getImageSize(Image.file(_file, fit: BoxFit.fitWidth)),
+                builder: (BuildContext context, AsyncSnapshot<Size> snapshot) {
+                  if (snapshot.hasData) {
+                    return Container(
+                        foregroundDecoration:
+                            TextDetectDecoration(_currentLabels, snapshot.data),
+                        child: Image.file(_file, fit: BoxFit.fitWidth));
+                  } else {
+                    return new Text('Detecting...');
+                  }
+                },
+              ),
+      ),
+    );
+  }
+
+  Future<Size> _getImageSize(Image image) {
+    Completer<Size> completer = new Completer<Size>();
+    image.image.resolve(new ImageConfiguration()).addListener(
+        (ImageInfo info, bool _) => completer.complete(
+            Size(info.image.width.toDouble(), info.image.height.toDouble())));
+    return completer.future;
+  }
+
+  Widget _buildBody() {
+    return Container(
+      child: Column(
+        children: <Widget>[
+          _buildImage(),
+          _buildList(_currentLabels),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList(List<VisionText> texts) {
+    if (texts.length == 0) {
+      return Text('Empty');
+    }
+    return Expanded(
+      child: Container(
+        child: ListView.builder(
+            padding: const EdgeInsets.all(1.0),
+            itemCount: texts.length,
+            itemBuilder: (context, i) {
+              return _buildRow(texts[i].text);
+            }),
+      ),
+    );
+  }
+
+  Widget _buildRow(String text) {
+    return ListTile(
+      title: Text(
+        "Text: ${text}",
+      ),
+      dense: true,
+    );
+  }
+}
+
+class TextDetectDecoration extends Decoration {
+  final Size _originalImageSize;
+  final List<VisionText> _texts;
+  TextDetectDecoration(List<VisionText> texts, Size originalImageSize)
+      : _texts = texts,
+        _originalImageSize = originalImageSize;
+
+  @override
+  BoxPainter createBoxPainter([VoidCallback onChanged]) {
+    return new _TextDetectPainter(_texts, _originalImageSize);
+  }
+}
+
+class _TextDetectPainter extends BoxPainter {
+  final List<VisionText> _texts;
+  final Size _originalImageSize;
+  _TextDetectPainter(texts, originalImageSize)
+      : _texts = texts,
+        _originalImageSize = originalImageSize;
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    final paint = new Paint()
+      ..strokeWidth = 2.0
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke;
+    print("original Image Size : ${_originalImageSize}");
+
+    final _heightRatio = _originalImageSize.height / configuration.size.height;
+    final _widthRatio = _originalImageSize.width / configuration.size.width;
+    for (var text in _texts) {
+      print("text : ${text.text}, rect : ${text.rect}");
+      final _rect = Rect.fromLTRB(
+          offset.dx + text.rect.left / _widthRatio,
+          offset.dy + text.rect.top / _heightRatio,
+          offset.dx + text.rect.right / _widthRatio,
+          offset.dy + text.rect.bottom / _heightRatio);
+      //final _rect = Rect.fromLTRB(24.0, 115.0, 75.0, 131.2);
+      print("_rect : ${_rect}");
+      canvas.drawRect(_rect, paint);
+    }
+
+    print("offset : ${offset}");
+    print("configuration : ${configuration}");
+
+    final rect = offset & configuration.size;
+
+    print("rect container : ${rect}");
+
+    //canvas.drawRect(rect, paint);
+    canvas.restore();
   }
 }
