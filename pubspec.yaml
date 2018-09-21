@@ -3,7 +3,7 @@ description: sample app for fluttermlkit https:&#x2F;&#x2F;github.com&#x2F;azihs
 
 dependencies:
   image_picker: ^0.4.1
-  mlkit: ^0.2.2
+  mlkit: ^0.6.2
   flutter:
     sdk: flutter
 
